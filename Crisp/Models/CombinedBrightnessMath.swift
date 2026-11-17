@@ -19,7 +19,8 @@ enum CombinedBrightnessMath {
         combined: Double,
         maxBrightness: Double,
         displayMaxNits: Double?,
-        referenceMaxNits: Double?
+        referenceMaxNits: Double?,
+        softwareDimming: Bool = true
     ) -> Double {
         guard maxBrightness.isFinite, maxBrightness > 0,
               let displayMaxNits, displayMaxNits.isFinite, displayMaxNits > 0,
@@ -29,7 +30,7 @@ enum CombinedBrightnessMath {
         }
         let fraction = targetNits(combined: combined, referenceMaxNits: referenceMaxNits)
             / displayMaxNits
-        let percent = externalBrightness(forLuminanceFraction: fraction)
+        let percent = externalBrightness(forLuminanceFraction: fraction, softwareDimming: softwareDimming)
         return min(maxBrightness, max(0.0, percent))
     }
 
@@ -37,7 +38,8 @@ enum CombinedBrightnessMath {
         brightness: Double,
         maxBrightness: Double,
         displayMaxNits: Double?,
-        referenceMaxNits: Double?
+        referenceMaxNits: Double?,
+        softwareDimming: Bool = true
     ) -> Double {
         guard brightness.isFinite, maxBrightness.isFinite, maxBrightness > 0,
               let displayMaxNits, displayMaxNits.isFinite, displayMaxNits > 0,
@@ -45,7 +47,8 @@ enum CombinedBrightnessMath {
               maxBrightness <= 100.5 else {
             return min(100.0, max(0.0, brightness / maxBrightness * 100.0))
         }
-        let fraction = externalLuminanceFraction(forBrightness: brightness)
+        let fraction = externalLuminanceFraction(
+            forBrightness: brightness, softwareDimming: softwareDimming)
         let nits = fraction * displayMaxNits
         return min(100.0, max(0.0, nits / referenceMaxNits * 100.0))
     }
@@ -73,7 +76,8 @@ enum CombinedBrightnessMath {
         builtinLinear: Double,
         builtinMaxNits: Double,
         externalMaxNits: Double,
-        builtinAdjustment: Double
+        builtinAdjustment: Double,
+        softwareDimming: Bool = true
     ) -> Double {
         guard builtinLinear.isFinite, builtinMaxNits.isFinite, builtinMaxNits > 0,
               externalMaxNits.isFinite, externalMaxNits > 0 else { return 0 }
@@ -82,21 +86,33 @@ enum CombinedBrightnessMath {
                   max(builtinAdjustmentRange.lowerBound, builtinAdjustment))
             : defaultBuiltinAdjustment
         let externalNits = builtinLinear * builtinMaxNits / safeAdjustment
-        return externalBrightness(forLuminanceFraction: externalNits / externalMaxNits)
+        return externalBrightness(
+            forLuminanceFraction: externalNits / externalMaxNits,
+            softwareDimming: softwareDimming)
     }
 
     /// Below 15%, Crisp layers gamma dimming on top of DDC backlight dimming.
     /// The two factors multiply, so this inverse square root is required for
     /// the requested nits instead of treating the low range as linear.
-    private static func externalBrightness(forLuminanceFraction fraction: Double) -> Double {
+    /// With software dimming turned off the backlight is the only dimmer, so
+    /// the low range is plain linear again.
+    private static func externalBrightness(
+        forLuminanceFraction fraction: Double,
+        softwareDimming: Bool = true
+    ) -> Double {
         let clamped = min(1.0, max(0.0, fraction))
+        guard softwareDimming else { return clamped * 100.0 }
         let thresholdFraction = externalGammaBlendThreshold / 100.0
         guard clamped < thresholdFraction else { return clamped * 100.0 }
         return sqrt(clamped * 100.0 * externalGammaBlendThreshold)
     }
 
-    private static func externalLuminanceFraction(forBrightness brightness: Double) -> Double {
+    private static func externalLuminanceFraction(
+        forBrightness brightness: Double,
+        softwareDimming: Bool = true
+    ) -> Double {
         let percent = min(100.0, max(0.0, brightness))
+        guard softwareDimming else { return percent / 100.0 }
         guard percent < externalGammaBlendThreshold else { return percent / 100.0 }
         return percent / 100.0 * percent / externalGammaBlendThreshold
     }

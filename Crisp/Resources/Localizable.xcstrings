@@ -2774,6 +2774,22 @@
         }
       }
     },
+    "Off keeps brightness on the backlight alone" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭后亮度只调整背光"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "關閉後亮度只調整背光"
+          }
+        }
+      }
+    },
     "OK" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -3854,6 +3870,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "軟體"
+          }
+        }
+      }
+    },
+    "Software Dimming" : {
+      "localizations" : {
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "软件调光"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "軟體調光"
           }
         }
       }

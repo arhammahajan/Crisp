@@ -215,6 +215,71 @@ final class BrightnessService: @unchecked Sendable {
     private var softwareBrightnessFactors: [CGDirectDisplayID: Double] = [:]
     private let softwareBrightnessLock = NSLock()
 
+    /// Mirror of `SettingsService.allowSoftwareDimming`. Read on the DDC queue and
+    /// inside the pump, which cannot touch the main-actor settings object, so it
+    /// lives here behind its own lock. On by default, like the setting.
+    private var softwareDimmingAllowedStorage = true
+    private let softwareDimmingAllowedLock = NSLock()
+
+    /// Whether brightness may be finished in the picture (gamma) instead of, or on
+    /// top of, the backlight. Off means the DDC value is the only thing that moves.
+    var softwareDimmingAllowed: Bool {
+        softwareDimmingAllowedLock.withLock { softwareDimmingAllowedStorage }
+    }
+
+    /// Set by DisplayManager (same wiring as PhysicalDisplayToggleService): only
+    /// used to re-apply each external's brightness after the dimming setting flips.
+    weak var displayManager: DisplayManager?
+
+    /// Adopts the setting. Turning dimming off lifts any gamma dim already on
+    /// screen and repairs a display latched to software after a DDC failure, so
+    /// "hardware only" takes effect immediately instead of at the next slider move.
+    func setSoftwareDimmingAllowed(_ allowed: Bool) {
+        let changed = softwareDimmingAllowedLock.withLock {
+            guard softwareDimmingAllowedStorage != allowed else { return false }
+            softwareDimmingAllowedStorage = allowed
+            return true
+        }
+        guard changed else { return }
+
+        if !allowed {
+            // Lift any gamma dim off the screen on the same serial queue the DDC
+            // writes use (a transfer-table write is a synchronous WindowServer call,
+            // not something to run on main).
+            queue.async { [weak self] in
+                guard let self else { return }
+                let dimmed = self.softwareBrightnessLock.withLock {
+                    self.softwareBrightnessFactors.filter { $0.value < 1.0 }.map(\.key)
+                }
+                for displayID in dimmed {
+                    self.setSoftwareBrightness(100.0, for: displayID)
+                }
+            }
+            // A display latched to software by three failed writes gets another run
+            // at DDC now, or nothing would move its backlight at all.
+            let latched: [CGDirectDisplayID] = ddcAvailableLock.withLock {
+                let ids = ddcAvailable.filter { $0.value == false }.map(\.key)
+                for id in ids { ddcAvailable[id] = nil }
+                return ids
+            }
+            if !latched.isEmpty {
+                ddcPumpLock.withLock {
+                    for id in latched { ddcFailStreak[id] = 0 }
+                }
+            }
+        }
+
+        // Either way the current brightness is now wrong (a lifted dim is too
+        // bright, a resumed one too flat): re-apply it through the normal path so
+        // each external lands where its slider says.
+        Task { @MainActor [weak self] in
+            guard let self, let displays = self.displayManager?.displays else { return }
+            for display in displays where !display.isBuiltin {
+                await self.setBrightness(display.brightness, for: display, isAutoAdjust: true)
+            }
+        }
+    }
+
     /// UUID-keyed like GammaPersistenceKey (issue #32): a raw-ID key could
     /// hand this display's dimming factor to a different physical display.
     private func softBrightnessKey(for displayID: CGDirectDisplayID) -> String {
@@ -443,7 +508,7 @@ final class BrightnessService: @unchecked Sendable {
             if clamped <= 100 {
                 let currentStatus: Bool? = ddcAvailableLock.withLock { ddcAvailable[displayID] }
 
-                if currentStatus == false {
+                if currentStatus == false && softwareDimmingAllowed {
                     // DDC known unavailable, go straight to software fallback
                     applyLatestSoftwareBrightness(hardware, for: displayID)
                 } else {
@@ -591,9 +656,10 @@ final class BrightnessService: @unchecked Sendable {
     private func writeDDCBrightnessCoalesced(percent: Double, for displayID: CGDirectDisplayID) {
         // Single choke point for every DDC brightness write: routes the full
         // range to gamma while the monitor is in HDR mode. DDC resumes
-        // automatically when HDR goes off.
+        // automatically when HDR goes off. With software dimming off the DDC
+        // path is kept even in HDR, where the panel may simply ignore it.
         let hdrDimmed = ddcAvailableLock.withLock { hdrDimmedDisplays.contains(displayID) }
-        if hdrDimmed {
+        if hdrDimmed && softwareDimmingAllowed {
             applyLatestSoftwareBrightness(percent, for: displayID)
             return
         }
@@ -612,9 +678,13 @@ final class BrightnessService: @unchecked Sendable {
             }
             guard isLatest else { return }
             if ddcStatus == nil {
-                self.setSoftwareBrightness(percent, for: displayID)
+                // Unknown DDC state: the gamma preview is what makes the drag
+                // feel immediate. Skip it when only hardware may move.
+                if self.softwareDimmingAllowed {
+                    self.setSoftwareBrightness(percent, for: displayID)
+                }
             } else if ddcStatus == true {
-                if percent < self.gammaBlendThreshold {
+                if percent < self.gammaBlendThreshold, self.softwareDimmingAllowed {
                     self.setSoftwareBrightness(
                         percent / self.gammaBlendThreshold * 100.0,
                         for: displayID
@@ -736,7 +806,8 @@ final class BrightnessService: @unchecked Sendable {
                     && self.pendingDDCTarget[displayID] == nil
             }
             if settle {
-                let softwarePercent = target.percent < self.gammaBlendThreshold
+                let softwarePercent = self.softwareDimmingAllowed
+                    && target.percent < self.gammaBlendThreshold
                     ? target.percent / self.gammaBlendThreshold * 100.0
                     : 100.0
                 self.setSoftwareBrightness(softwarePercent, for: displayID)
@@ -755,6 +826,9 @@ final class BrightnessService: @unchecked Sendable {
             let streak = (ddcFailStreak[displayID] ?? 0) + 1
             ddcFailStreak[displayID] = streak
             guard streak >= 3 else { return (streak, nil) }
+            // Hardware-only mode never latches to gamma: fail like the grace
+            // window does, so the pump keeps retrying DDC and nothing is lost.
+            guard self.softwareDimmingAllowed else { return (streak, nil) }
             ddcAvailableLock.withLock { ddcAvailable[displayID] = false }
             let latest = pendingDDCTarget.removeValue(forKey: displayID) ?? target
             ddcPumpActive.remove(displayID)
@@ -821,7 +895,7 @@ final class BrightnessService: @unchecked Sendable {
         } else {
             let currentStatus: Bool? = ddcAvailableLock.withLock { ddcAvailable[displayID] }
 
-            if currentStatus == false {
+            if currentStatus == false && softwareDimmingAllowed {
                 // Software (gamma) path. The transfer-table write is a
                 // synchronous WindowServer call, so it runs off the main
                 // thread or it would stall mid-glide at 125 steps/s.
@@ -919,7 +993,8 @@ final class BrightnessService: @unchecked Sendable {
             // `builtin` is the route through macOS, which Apple externals share.
             isBuiltin: display.hasNativeBrightness,
             hdrSoftwareDimming: state.0,
-            ddcAvailable: state.1
+            ddcAvailable: state.1,
+            softwareDimmingAllowed: softwareDimmingAllowed
         )
     }
 
@@ -973,6 +1048,9 @@ final class BrightnessService: @unchecked Sendable {
         // Skip Apple externals (issue #169): a saved gamma dim factor from a
         // past fallback would stack on the real backlight with nothing to clear it.
         guard !display.hasNativeBrightness else { return }
+        // Hardware-only mode never puts a dim back, not even one saved before the
+        // setting was turned off.
+        guard softwareDimmingAllowed else { return }
         let displayID = display.displayID
         let inMemory = softwareBrightnessLock.withLock { softwareBrightnessFactors[displayID] }
         let factor = inMemory ?? loadSoftwareBrightness(for: displayID)

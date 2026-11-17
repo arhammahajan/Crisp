@@ -92,6 +92,7 @@ class DisplayManager: ObservableObject {
 
     init() {
         PhysicalDisplayToggleService.shared.displayManager = self
+        BrightnessService.shared.displayManager = self
         refreshDisplays()
         setupReconfigCallback()
         // The CG reconfiguration callback fires before NSScreen.screens includes a new

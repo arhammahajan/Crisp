@@ -269,7 +269,8 @@ final class AutoBrightnessService: ObservableObject, @unchecked Sendable {
                     builtinLinear: builtinLinear,
                     builtinMaxNits: builtinMaxNits,
                     externalMaxNits: externalMaxNits,
-                    builtinAdjustment: SettingsService.shared.combinedBuiltinBrightnessFactor)
+                    builtinAdjustment: SettingsService.shared.combinedBuiltinBrightnessFactor,
+                    softwareDimming: SettingsService.shared.allowSoftwareDimming)
                 target = min(display.maxBrightness, max(0.0, matched * sensitivity))
             } else {
                 // Missing luminance metadata: preserve the old percentage mirror.

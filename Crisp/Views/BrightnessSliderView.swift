@@ -286,7 +286,8 @@ struct CombinedBrightnessView: View {
                 brightness: $0.brightness,
                 maxBrightness: $0.maxBrightness,
                 displayMaxNits: $0.nominalMaxNits,
-                referenceMaxNits: referenceMaxNits)
+                referenceMaxNits: referenceMaxNits,
+                softwareDimming: settings.allowSoftwareDimming)
         }.reduce(0, +) / Double(referenceDisplays.count)
     }
 
@@ -298,7 +299,8 @@ struct CombinedBrightnessView: View {
             combined: combined,
             maxBrightness: display.maxBrightness,
             displayMaxNits: display.nominalMaxNits,
-            referenceMaxNits: referenceMaxNits)
+            referenceMaxNits: referenceMaxNits,
+            softwareDimming: settings.allowSoftwareDimming)
     }
 
     private func builtinLinearTarget(_ combined: Double, for display: DisplayInfo) -> Double? {

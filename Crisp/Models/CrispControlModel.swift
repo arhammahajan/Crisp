@@ -369,13 +369,14 @@ enum CrispControlModel {
     static func brightnessBackend(
         isBuiltin: Bool,
         hdrSoftwareDimming: Bool,
-        ddcAvailable: Bool?
+        ddcAvailable: Bool?,
+        softwareDimmingAllowed: Bool = true
     ) -> CrispControlBrightnessBackend {
         if isBuiltin { return .builtin }
-        if hdrSoftwareDimming { return .software }
+        if hdrSoftwareDimming && softwareDimmingAllowed { return .software }
         switch ddcAvailable {
         case true: return .ddc
-        case false: return .software
+        case false: return softwareDimmingAllowed ? .software : .unknown
         case nil: return .unknown
         }
     }

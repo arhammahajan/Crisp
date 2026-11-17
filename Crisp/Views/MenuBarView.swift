@@ -616,6 +616,36 @@ struct SettingsView: View {
                 .padding(.vertical, 3)
             }
 
+            // Hardware-only brightness: with this off the external's slider only ever
+            // moves the DDC backlight. No gamma blend below the panel's minimum and no
+            // software fallback when DDC stops answering, so the picture is never touched
+            // and the monitor's own minimum is the floor.
+            if displayManager.displays.contains(where: { !$0.isBuiltin }) {
+                Toggle(isOn: Binding(
+                    get: { settings.allowSoftwareDimming },
+                    set: { newValue in withAnimation(.panelResize) { settings.allowSoftwareDimming = newValue } }
+                )) {
+                    HStack(spacing: 8) {
+                        MenuItemIcon(systemName: "circle.righthalf.filled", color: .purple, active: settings.allowSoftwareDimming)
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Software Dimming")
+                                .font(.body)
+                            Text("Off keeps brightness on the backlight alone")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                    }
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 3)
+                .help("Dim the picture below the monitor's minimum backlight, and again if DDC stops answering. "
+                      + "Off keeps every brightness step on the DDC write alone.")
+            }
+
             if PhysicalDisplayToggleService.shared.isSupported {
                 Toggle(isOn: Binding(
                     get: { settings.showConnectionSwitches },

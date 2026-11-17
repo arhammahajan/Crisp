@@ -106,4 +106,53 @@ final class CombinedBrightnessMathTests: XCTestCase {
             accuracy: 0.001
         )
     }
+
+    func testSoftwareDimmingOffMakesLowRangeLinearTheWayBacklightAloneIs() {
+        // No gamma layer means the DDC percent is the luminance fraction, so the
+        // inverse square root that un-does the stacked dim must not run.
+        let brightness = CombinedBrightnessMath.targetBrightness(
+            combined: 2,
+            maxBrightness: 100,
+            displayMaxNits: 400,
+            referenceMaxNits: 400,
+            softwareDimming: false
+        )
+        XCTAssertEqual(brightness, 2, accuracy: 0.001)
+        XCTAssertEqual(
+            CombinedBrightnessMath.controlValue(
+                brightness: brightness,
+                maxBrightness: 100,
+                displayMaxNits: 400,
+                referenceMaxNits: 400,
+                softwareDimming: false
+            ),
+            2,
+            accuracy: 0.001
+        )
+    }
+
+    func testSoftwareDimmingOffKeepsAbsoluteAutoBrightnessLinear() {
+        XCTAssertEqual(
+            CombinedBrightnessMath.externalBrightnessMatchingBuiltin(
+                builtinLinear: 0.02,
+                builtinMaxNits: 400,
+                externalMaxNits: 400,
+                builtinAdjustment: 1,
+                softwareDimming: false
+            ),
+            2,
+            accuracy: 0.001
+        )
+        // And the default still blends, so existing setups keep their curve.
+        XCTAssertEqual(
+            CombinedBrightnessMath.externalBrightnessMatchingBuiltin(
+                builtinLinear: 0.02,
+                builtinMaxNits: 400,
+                externalMaxNits: 400,
+                builtinAdjustment: 1
+            ),
+            sqrt(30),
+            accuracy: 0.001
+        )
+    }
 }

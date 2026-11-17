@@ -55,6 +55,7 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         static let showCombinedBrightness = "crisp.showCombinedBrightness"
         static let combinedBuiltinFactor  = "crisp.combinedBuiltinBrightnessAdjustment"
         static let showVolumeSliders      = "crisp.showVolumeSliders"
+        static let allowSoftwareDimming   = "crisp.allowSoftwareDimming"
         static let showConnectionSwitches = "crisp.showConnectionSwitches"
         static let crossDisplayGaps       = "crisp.crossDisplayGaps"
         static let disconnectBuiltinWhenDocked = "crisp.disconnectBuiltinWhenDocked"
@@ -108,6 +109,17 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
     /// default: a control that blanks a screen does not belong under a stray click.
     @Published var showConnectionSwitches: Bool = false {
         didSet { defaults.set(showConnectionSwitches, forKey: Keys.showConnectionSwitches) }
+    }
+
+    /// Whether an external's brightness may finish in software: the gamma blend below
+    /// the DDC minimum, and the whole-range fallback when DDC stops answering. On by
+    /// default (upstream behaviour). Off keeps the slider on the DDC write alone, so
+    /// the picture is never touched and the panel's own minimum becomes the floor.
+    @Published var allowSoftwareDimming: Bool = true {
+        didSet {
+            defaults.set(allowSoftwareDimming, forKey: Keys.allowSoftwareDimming)
+            BrightnessService.shared.setSoftwareDimmingAllowed(allowSoftwareDimming)
+        }
     }
 
     /// Pointer moves past display edges with no display behind them. Also starts and stops
@@ -301,6 +313,8 @@ final class SettingsService: ObservableObject, @unchecked Sendable {
         }
         showVolumeSliders = defaults.object(forKey: Keys.showVolumeSliders) != nil
             ? defaults.bool(forKey: Keys.showVolumeSliders) : true
+        allowSoftwareDimming = defaults.object(forKey: Keys.allowSoftwareDimming) != nil
+            ? defaults.bool(forKey: Keys.allowSoftwareDimming) : true
         showConnectionSwitches = defaults.bool(forKey: Keys.showConnectionSwitches)
         crossDisplayGaps = defaults.bool(forKey: Keys.crossDisplayGaps)
         disconnectBuiltinWhenDocked = defaults.bool(forKey: Keys.disconnectBuiltinWhenDocked)
